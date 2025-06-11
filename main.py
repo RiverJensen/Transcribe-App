@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from langchain_openai import ChatOpenAI
 from langchain_openai import OpenAIEmbeddings
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from langchain.tools import Tool
 from langchain.agents import create_react_agent, AgentExecutor
@@ -15,6 +15,9 @@ from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import uuid
+import whisper
+import tempfile
+import shutil
 
 load_dotenv()
 
@@ -279,6 +282,152 @@ async def search_transcripts_endpoint(request: Request):
         }
     except Exception as e:
         return {"message": f"Error searching transcripts: {str(e)}", "results": []}
+
+@app.post("/transcribe-video")
+async def transcribe_video(file: UploadFile = File(...)):
+    """Endpoint to transcribe video files using Whisper."""
+    
+    # Check file type
+    allowed_extensions = {'.mp4', '.avi', '.mov', '.mkv', '.mp3', '.wav', '.m4a', '.flac'}
+    file_extension = os.path.splitext(file.filename)[1].lower()
+    
+    if file_extension not in allowed_extensions:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unsupported file type. Supported formats: {', '.join(allowed_extensions)}"
+        )
+    
+    # Check file size (limit to 100MB)
+    max_size = 100 * 1024 * 1024  # 100MB
+    file_size = 0
+    
+    try:
+        print(f"🎥 Starting transcription for: {file.filename}")
+        
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_file:
+            # Read file in chunks to avoid memory issues
+            while chunk := await file.read(8192):
+                file_size += len(chunk)
+                if file_size > max_size:
+                    os.unlink(temp_file.name)
+                    raise HTTPException(status_code=400, detail="File too large. Maximum size is 100MB.")
+                temp_file.write(chunk)
+            
+            temp_path = temp_file.name
+        
+        try:
+            # Load Whisper model
+            print("🤖 Loading Whisper model...")
+            model = whisper.load_model("base")  # You can use "small", "medium", "large" for better accuracy
+            
+            # Transcribe the video/audio
+            print("🎤 Transcribing audio...")
+            result = model.transcribe(temp_path)
+            
+            transcript_text = result["text"].strip()
+            
+            if not transcript_text:
+                raise HTTPException(status_code=400, detail="No speech detected in the audio/video file.")
+            
+            print(f"✅ Transcription complete! Length: {len(transcript_text)} characters")
+            
+            return {
+                "success": True,
+                "transcript": transcript_text,
+                "filename": file.filename,
+                "duration": result.get("duration", "unknown"),
+                "language": result.get("language", "unknown"),
+                "message": f"Successfully transcribed {file.filename}"
+            }
+            
+        finally:
+            # Clean up temporary file
+            try:
+                os.unlink(temp_path)
+            except:
+                pass
+                
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error transcribing video: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Error transcribing video: {str(e)}",
+            "message": "Transcription failed. Please try again with a different file."
+        }
+
+@app.post("/embed-video-transcript")
+async def embed_video_transcript(request: Request):
+    """Endpoint to embed a video transcript into the vector store."""
+    data = await request.json()
+    transcript = data.get("transcript", "")
+    filename = data.get("filename", "")
+    duration = data.get("duration", "")
+    language = data.get("language", "")
+    custom_name = data.get("custom_name", "")
+    
+    if not transcript:
+        return {"message": "No transcript provided."}
+    
+    try:
+        # Generate base metadata
+        transcript_id = str(uuid.uuid4())
+        base_name = custom_name.strip() if custom_name.strip() else f"Video: {filename}"
+        
+        # Initialize text splitter for large transcripts
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=3000,
+            chunk_overlap=200,
+            length_function=len,
+            separators=["\n\n", "\n", ". ", "! ", "? ", " ", ""]
+        )
+        
+        # Split the transcript into chunks
+        chunks = text_splitter.split_text(transcript)
+        
+        print(f"Split video transcript into {len(chunks)} chunks")
+        
+        # Create documents for each chunk
+        documents = []
+        for i, chunk in enumerate(chunks):
+            chunk_metadata = {
+                "id": str(uuid.uuid4()),
+                "transcript_id": transcript_id,
+                "type": "video_transcript",
+                "name": base_name,
+                "source": "video_upload",
+                "filename": filename,
+                "duration": duration,
+                "language": language,
+                "chunk_index": i,
+                "total_chunks": len(chunks),
+                "chunk_size": len(chunk),
+                "total_length": len(transcript),
+            }
+            
+            doc = Document(
+                page_content=chunk,
+                metadata=chunk_metadata
+            )
+            documents.append(doc)
+        
+        # Add all documents to Pinecone
+        vectorstore.add_documents(documents)
+        
+        return {
+            "message": f"Video transcript embedded successfully! Split into {len(chunks)} chunks.",
+            "transcript_name": base_name,
+            "transcript_id": transcript_id,
+            "total_chunks": len(chunks),
+            "total_length": len(transcript),
+            "source": "video_upload"
+        }
+        
+    except Exception as e:
+        print(f"Error embedding video transcript: {str(e)}")
+        return {"message": f"Error embedding transcript: {str(e)}"}
 
 @app.get("/")
 async def root():

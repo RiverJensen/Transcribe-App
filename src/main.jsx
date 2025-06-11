@@ -74,7 +74,245 @@ function TranscriptList() {
   );
 }
 
+function VideoTranscribe({ onBackToMain }) {
+  const [dragActive, setDragActive] = useState(false);
+  const [file, setFile] = useState(null);
+  const [transcribing, setTranscribing] = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const [transcriptData, setTranscriptData] = useState(null);
+  const [customName, setCustomName] = useState("");
+  const [embedding, setEmbedding] = useState(false);
+  const [embedMessage, setEmbedMessage] = useState("");
+
+  const handleDrag = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleFileSelect(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleFileSelect = (selectedFile) => {
+    const allowedTypes = [
+      'video/mp4', 'video/avi', 'video/mov', 'video/quicktime', 'video/x-msvideo',
+      'audio/mp3', 'audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/m4a', 'audio/flac'
+    ];
+    
+    if (!allowedTypes.includes(selectedFile.type) && !selectedFile.name.match(/\.(mp4|avi|mov|mkv|mp3|wav|m4a|flac)$/i)) {
+      alert("Please select a video or audio file (MP4, AVI, MOV, MKV, MP3, WAV, M4A, FLAC)");
+      return;
+    }
+    
+    if (selectedFile.size > 100 * 1024 * 1024) { // 100MB limit
+      alert("File too large. Maximum size is 100MB.");
+      return;
+    }
+    
+    setFile(selectedFile);
+    setTranscript("");
+    setTranscriptData(null);
+    setEmbedMessage("");
+  };
+
+  const transcribeVideo = async () => {
+    if (!file) return;
+    
+    setTranscribing(true);
+    setTranscript("");
+    setTranscriptData(null);
+    
+    const formData = new FormData();
+    formData.append("file", file);
+    
+    try {
+      const res = await fetch("http://localhost:8000/transcribe-video", {
+        method: "POST",
+        body: formData,
+      });
+      
+      const data = await res.json();
+      
+      if (data.success) {
+        setTranscript(data.transcript);
+        setTranscriptData(data);
+        setCustomName(data.filename.replace(/\.[^/.]+$/, "")); // Remove file extension
+      } else {
+        alert(data.message || "Transcription failed");
+      }
+    } catch (err) {
+      alert("Error during transcription. Please try again.");
+      console.error(err);
+    }
+    
+    setTranscribing(false);
+  };
+
+  const embedTranscript = async () => {
+    if (!transcript || !transcriptData) return;
+    
+    setEmbedding(true);
+    setEmbedMessage("");
+    
+    try {
+      const res = await fetch("http://localhost:8000/embed-video-transcript", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transcript: transcript,
+          filename: transcriptData.filename,
+          duration: transcriptData.duration,
+          language: transcriptData.language,
+          custom_name: customName
+        }),
+      });
+      
+      const data = await res.json();
+      setEmbedMessage(data.message);
+      
+      if (data.message.includes("successfully")) {
+        setTimeout(() => {
+          onBackToMain();
+        }, 2000);
+      }
+    } catch (err) {
+      setEmbedMessage("Error embedding transcript.");
+    }
+    
+    setEmbedding(false);
+  };
+
+  return (
+    <div className="video-transcribe-page">
+      <div className="video-header">
+        <button className="back-btn" onClick={onBackToMain}>
+          ← Back to Main
+        </button>
+        <h2>Transcribe Video/Audio</h2>
+      </div>
+      
+      <div className="video-content">
+        <div className="upload-section">
+          <div 
+            className={`file-drop-zone ${dragActive ? 'active' : ''} ${file ? 'has-file' : ''}`}
+            onDragEnter={handleDrag}
+            onDragLeave={handleDrag}
+            onDragOver={handleDrag}
+            onDrop={handleDrop}
+            onClick={() => document.getElementById('file-input').click()}
+          >
+            <input
+              id="file-input"
+              type="file"
+              accept="video/*,audio/*,.mp4,.avi,.mov,.mkv,.mp3,.wav,.m4a,.flac"
+              onChange={(e) => e.target.files[0] && handleFileSelect(e.target.files[0])}
+              style={{ display: 'none' }}
+            />
+            
+            {!file ? (
+              <div className="drop-zone-content">
+                <div className="drop-icon">📁</div>
+                <div className="drop-text">
+                  Drag & drop a video or audio file here
+                  <br />
+                  <span className="drop-subtext">or click to browse</span>
+                </div>
+                <div className="supported-formats">
+                  Supported: MP4, AVI, MOV, MKV, MP3, WAV, M4A, FLAC (max 100MB)
+                </div>
+              </div>
+            ) : (
+              <div className="file-selected">
+                <div className="file-icon">🎥</div>
+                <div className="file-info">
+                  <div className="file-name">{file.name}</div>
+                  <div className="file-size">{(file.size / (1024 * 1024)).toFixed(1)} MB</div>
+                </div>
+                <button 
+                  className="remove-file"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFile(null);
+                    setTranscript("");
+                    setTranscriptData(null);
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+          </div>
+          
+          {file && !transcript && (
+            <button 
+              className="transcribe-btn"
+              onClick={transcribeVideo}
+              disabled={transcribing}
+            >
+              {transcribing ? "Transcribing... (this may take a few minutes)" : "Start Transcription"}
+            </button>
+          )}
+        </div>
+        
+        {transcript && (
+          <div className="transcript-result">
+            <div className="transcript-header">
+              <h3>Transcription Result</h3>
+              {transcriptData && (
+                <div className="transcript-meta">
+                  Duration: {transcriptData.duration}s | Language: {transcriptData.language}
+                </div>
+              )}
+            </div>
+            
+            <div className="custom-name-input">
+              <input
+                type="text"
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                placeholder="Enter custom name for this transcript"
+                className="transcript-name-input"
+              />
+            </div>
+            
+            <div className="transcript-text">
+              {transcript}
+            </div>
+            
+            <div className="embed-section">
+              {embedMessage && (
+                <div className={`embed-message ${embedMessage.includes("successfully") ? "success" : "error"}`}>
+                  {embedMessage}
+                </div>
+              )}
+              <button 
+                className="embed-btn"
+                onClick={embedTranscript}
+                disabled={embedding}
+              >
+                {embedding ? "Embedding..." : "Embed to Vector Store"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function App() {
+  const [currentPage, setCurrentPage] = useState("main");
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -143,11 +381,23 @@ function App() {
     setEmbedLoading(false);
   };
 
+  if (currentPage === "video") {
+    return <VideoTranscribe onBackToMain={() => setCurrentPage("main")} />;
+  }
+
   return (
     <div className="container">
       <div className="main-box">
         <div className="chat-section">
-          <h2>Ask questions about the transcripts here and up here is the response from the LLM</h2>
+          <div className="chat-header">
+            <h2>Ask questions about the transcripts here</h2>
+            <button 
+              className="video-transcribe-nav-btn"
+              onClick={() => setCurrentPage("video")}
+            >
+              Transcribe a Video
+            </button>
+          </div>
           <div className="chat-box">
             {messages.map((msg, i) => (
               <div key={i} className={msg.sender === "user" ? "user-msg" : "bot-msg"}>
@@ -173,7 +423,7 @@ function App() {
       <div className="side-boxes">
         <div className="embed-box">
           <div className="embed-text">
-            Add transcripts by pasting text (for YouTube: copy transcript from '...' → 'Show transcript')
+            Add transcripts by pasting text 
           </div>
           <input
             className="transcript-name-input"
