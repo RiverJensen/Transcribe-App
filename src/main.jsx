@@ -115,8 +115,8 @@ function VideoTranscribe({ onBackToMain }) {
       return;
     }
     
-    if (selectedFile.size > 100 * 1024 * 1024) { // 100MB limit
-      alert("File too large. Maximum size is 100MB.");
+    if (selectedFile.size > 200 * 1024 * 1024) { // 200MB limit
+      alert("File too large. Maximum size is 200MB.");
       return;
     }
     
@@ -187,126 +187,99 @@ function VideoTranscribe({ onBackToMain }) {
         }, 2000);
       }
     } catch (err) {
-      setEmbedMessage("Error embedding transcript.");
+      setEmbedMessage("Error embedding transcript. Please try again.");
+      console.error(err);
     }
     
     setEmbedding(false);
   };
 
   return (
-    <div className="video-transcribe-page">
-      <div className="video-header">
+    <div className="video-transcribe">
+      <div className="header">
         <button className="back-btn" onClick={onBackToMain}>
-          ← Back to Main
+          ← Back to Chat
         </button>
         <h2>Transcribe Video/Audio</h2>
       </div>
-      
-      <div className="video-content">
-        <div className="upload-section">
-          <div 
-            className={`file-drop-zone ${dragActive ? 'active' : ''} ${file ? 'has-file' : ''}`}
-            onDragEnter={handleDrag}
-            onDragLeave={handleDrag}
-            onDragOver={handleDrag}
-            onDrop={handleDrop}
-            onClick={() => document.getElementById('file-input').click()}
-          >
+
+      <div className="upload-section">
+        <div
+          className={`upload-area ${dragActive ? "drag-active" : ""}`}
+          onDragEnter={handleDrag}
+          onDragLeave={handleDrag}
+          onDragOver={handleDrag}
+          onDrop={handleDrop}
+        >
+          <div className="upload-content">
+            <div className="upload-icon">📁</div>
+            <p>Drag and drop your video/audio file here</p>
+            <p className="upload-formats">
+              Supported: MP4, AVI, MOV, MKV, MP3, WAV, M4A, FLAC (max 200MB)
+            </p>
             <input
-              id="file-input"
               type="file"
-              accept="video/*,audio/*,.mp4,.avi,.mov,.mkv,.mp3,.wav,.m4a,.flac"
+              accept=".mp4,.avi,.mov,.mkv,.mp3,.wav,.m4a,.flac"
               onChange={(e) => e.target.files[0] && handleFileSelect(e.target.files[0])}
-              style={{ display: 'none' }}
+              style={{ display: "none" }}
+              id="file-input"
             />
-            
-            {!file ? (
-              <div className="drop-zone-content">
-                <div className="drop-icon">📁</div>
-                <div className="drop-text">
-                  Drag & drop a video or audio file here
-                  <br />
-                  <span className="drop-subtext">or click to browse</span>
-                </div>
-                <div className="supported-formats">
-                  Supported: MP4, AVI, MOV, MKV, MP3, WAV, M4A, FLAC (max 100MB)
-                </div>
-              </div>
-            ) : (
-              <div className="file-selected">
-                <div className="file-icon">🎥</div>
-                <div className="file-info">
-                  <div className="file-name">{file.name}</div>
-                  <div className="file-size">{(file.size / (1024 * 1024)).toFixed(1)} MB</div>
-                </div>
-                <button 
-                  className="remove-file"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFile(null);
-                    setTranscript("");
-                    setTranscriptData(null);
-                  }}
-                >
-                  ✕
-                </button>
-              </div>
-            )}
+            <label htmlFor="file-input" className="upload-btn">
+              Choose File
+            </label>
           </div>
-          
-          {file && !transcript && (
+        </div>
+
+        {file && (
+          <div className="file-info">
+            <p><strong>Selected:</strong> {file.name}</p>
+            <p><strong>Size:</strong> {(file.size / (1024 * 1024)).toFixed(2)} MB</p>
             <button 
-              className="transcribe-btn"
+              className="transcribe-btn" 
               onClick={transcribeVideo}
               disabled={transcribing}
             >
-              {transcribing ? "Transcribing... (this may take a few minutes)" : "Start Transcription"}
+              {transcribing ? "Transcribing..." : "Transcribe"}
             </button>
-          )}
-        </div>
-        
-        {transcript && (
-          <div className="transcript-result">
-            <div className="transcript-header">
-              <h3>Transcription Result</h3>
-              {transcriptData && (
-                <div className="transcript-meta">
-                  Duration: {transcriptData.duration}s | Language: {transcriptData.language}
-                </div>
-              )}
-            </div>
-            
-            <div className="custom-name-input">
-              <input
-                type="text"
-                value={customName}
-                onChange={(e) => setCustomName(e.target.value)}
-                placeholder="Enter custom name for this transcript"
-                className="transcript-name-input"
-              />
-            </div>
-            
-            <div className="transcript-text">
-              {transcript}
-            </div>
-            
-            <div className="embed-section">
-              {embedMessage && (
-                <div className={`embed-message ${embedMessage.includes("successfully") ? "success" : "error"}`}>
-                  {embedMessage}
-                </div>
-              )}
-              <button 
-                className="embed-btn"
-                onClick={embedTranscript}
-                disabled={embedding}
-              >
-                {embedding ? "Embedding..." : "Embed to Vector Store"}
-              </button>
-            </div>
           </div>
         )}
       </div>
+
+      {transcript && (
+        <div className="transcript-section">
+          <h3>Transcript</h3>
+          <div className="transcript-container">
+            <div className="transcript-text">
+              {transcript}
+            </div>
+          </div>
+
+          <div className="embed-section">
+            <h4>Save to Knowledge Base</h4>
+            <div className="embed-form">
+              <input
+                type="text"
+                placeholder="Custom name (optional)"
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                className="custom-name-input"
+              />
+              <button 
+                className="embed-btn" 
+                onClick={embedTranscript}
+                disabled={embedding}
+              >
+                {embedding ? "Saving..." : "Save Transcript"}
+              </button>
+            </div>
+            {embedMessage && (
+              <div className={`embed-message ${embedMessage.includes("successfully") ? "success" : "error"}`}>
+                {embedMessage}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

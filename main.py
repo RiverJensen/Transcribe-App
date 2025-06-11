@@ -297,8 +297,8 @@ async def transcribe_video(file: UploadFile = File(...)):
             detail=f"Unsupported file type. Supported formats: {', '.join(allowed_extensions)}"
         )
     
-    # Check file size (limit to 100MB)
-    max_size = 100 * 1024 * 1024  # 100MB
+    # Check file size (limit to 200MB)
+    max_size = 200 * 1024 * 1024  # 200MB
     file_size = 0
     
     try:
@@ -311,7 +311,7 @@ async def transcribe_video(file: UploadFile = File(...)):
                 file_size += len(chunk)
                 if file_size > max_size:
                     os.unlink(temp_file.name)
-                    raise HTTPException(status_code=400, detail="File too large. Maximum size is 100MB.")
+                    raise HTTPException(status_code=400, detail="File too large. Maximum size is 200MB.")
                 temp_file.write(chunk)
             
             temp_path = temp_file.name
@@ -319,25 +319,25 @@ async def transcribe_video(file: UploadFile = File(...)):
         try:
             # Load Whisper model
             print("🤖 Loading Whisper model...")
-            model = whisper.load_model("base")  # You can use "small", "medium", "large" for better accuracy
+            whisper_model = whisper.load_model("base")
             
             # Transcribe the video/audio
             print("🎤 Transcribing audio...")
-            result = model.transcribe(temp_path)
+            whisper_result = whisper_model.transcribe(temp_path)
             
-            transcript_text = result["text"].strip()
+            transcript_text = whisper_result["text"].strip()
             
             if not transcript_text:
                 raise HTTPException(status_code=400, detail="No speech detected in the audio/video file.")
             
-            print(f"✅ Transcription complete! Length: {len(transcript_text)} characters")
+            print(f"✅ Transcription complete!")
             
             return {
                 "success": True,
                 "transcript": transcript_text,
                 "filename": file.filename,
-                "duration": result.get("duration", "unknown"),
-                "language": result.get("language", "unknown"),
+                "duration": whisper_result.get("duration", "unknown"),
+                "language": whisper_result.get("language", "unknown"),
                 "message": f"Successfully transcribed {file.filename}"
             }
             
