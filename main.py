@@ -90,7 +90,12 @@ def search_transcripts(query: str) -> str:
 # Create the transcript search tool
 transcript_tool = Tool(
     name="search_transcripts",
-    description="Search through stored transcripts to find relevant information for answering questions. Input should be a search query string.",
+    description=(
+    "Look to see if the title of the vector store is in the question, "
+    "and if it is, first look into that vector store to see if you can answer the question. "
+    "If you can't answer the question, search through stored transcripts to find relevant "
+    "information for answering it. Input should be a search query string."
+    ),
     func=search_transcripts
 )
 
